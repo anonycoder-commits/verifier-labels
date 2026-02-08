@@ -1,51 +1,31 @@
 # Verifier Labels
 
-A Geode mod that displays verifier information and video links for Extreme Demon levels in Geometry Dash.
+<p align="center">
+  <img src="logo.png" width="160" alt="Verifier Labels Logo">
+</p>
 
-<img src="logo.png" width="150" alt="the mod's logo" />
+**Displays AREDL verification data directly in the Level Info Layer.**
 
-## Features
+Verifier Labels fetches the original verifier and completion video for Extreme Demons using the [AREDL](https://aredl.net/) database.
 
-- **Verifier Display**: Shows the name of the person who verified Extreme Demon levels
-- **Video Links**: Provides clickable YouTube icons that open verification videos
-- **Smart Caching**: Locally caches verifier data to reduce API calls and improve performance
-- **AREDL Integration**: Uses the AREDL (Archive of Extreme Demon Layouts) API for accurate verification data
-- **Thread-Safe**: Implements proper concurrency handling for cache operations
+### Features
+* **Verifier Credits**: See the name of the player who verified the level.
+* **Video Proof**: Clickable YouTube icon that opens the verification video in your browser.
+* **Smart Caching**: Data is saved locally to ensure instant loading and reduced API calls.
+* **Customizable**: Adjust the label position or toggle features via Geode settings.
 
-## How It Works
+### How to Use
+1. Open any **Extreme Demon** level.
+2. The verifier's name appears automatically below the level creator info.
+3. Click the **YouTube icon** (if visible) to watch the proof.
 
-The mod automatically fetches verifier information for Extreme Demon levels using the AREDL API. The data is cached locally to minimize network requests and provide instant results on subsequent views.
+### Configuration
+Adjust these settings in the Geode menu:
+* **Enable Labels**: Toggle the mod UI on or off.
+* **Vertical Position**: Move the label up or down to avoid overlapping other mods.
+* **Show YouTube Button**: Toggle the visibility of the video link icon.
 
-## Installation
-
-1. Install [Geode SDK](https://docs.geode-sdk.org/getting-started/)
-2. Build the mod using the instructions below
-3. Place the compiled `.geode` file in your Geode mods folder
-
-## Build Instructions
-
-For more information, see [the Geode documentation](https://docs.geode-sdk.org/getting-started/create-mod#build)
-
-```sh
-# Assuming you have the Geode CLI set up already
-geode build
-```
-
-## Configuration
-
-The mod automatically manages its cache file in your mod's save directory. No manual configuration is required.
-
-## Requirements
-
-- Geometry Dash 2.2081 or later
-- Geode SDK 5.0.0-alpha.1 or later
-- geode.node-ids dependency (>= 1.22.0-beta.1)
-
-## Resources
-
-- [Geode SDK Documentation](https://docs.geode-sdk.org/)
-- [Geode SDK Source Code](https://github.com/geode-sdk/geode/)
-- [Geode CLI](https://github.com/geode-sdk/cli)
-- [Bindings](https://github.com/geode-sdk/bindings/)
-- [Dev Tools](https://github.com/geode-sdk/DevTools)
-- [AREDL API](https://aredl.net/)
+### Requirements
+* **Geometry Dash**: 2.2081+
+* **Geode SDK**: 5.0.0-alpha.1+
+* **Dependency**: `geode.node-ids`
