@@ -30,10 +30,6 @@ namespace {
     constexpr auto FALLBACK_POSITION_Y = 100.f;
 }
 
-// ============================================================================
-// CACHE
-// ============================================================================
-
 struct CacheEntry {
     std::string verifierName;
     std::string videoUrl;
@@ -90,8 +86,8 @@ static void loadCache() {
         if (parts.size() < 4) continue;
 
         try {
-            int id = std::stoi(parts[0]);
-            long long epoch = std::stoll(parts[1]);
+            int id = utils::numFromString<int>(parts[0]).unwrapOr(0);
+            long long epoch = utils::numFromString<long long>(parts[1]).unwrapOr(0);
             bool legacy = (parts.size() >= 5 && parts[4] == "1");
 
             VerifierCache::get().insert(id, {
@@ -112,10 +108,6 @@ static void saveCache() {
     }
 }
 
-// ============================================================================
-// SETTINGS
-// ============================================================================
-
 $execute {
     listenForSettingChanges<bool>("clear-cache-btn", [](bool value) {
         if (value) {
@@ -130,10 +122,6 @@ $execute {
         }
     });
 }
-
-// ============================================================================
-// HOOKS
-// ============================================================================
 
 class $modify(VerifierInfoLayer, LevelInfoLayer) {
     struct Fields {
@@ -159,7 +147,6 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         if (level->m_levelID <= 0) return true;
 
         if (auto entry = VerifierCache::get().fetch(level->m_levelID)) {
-            // Only update and show if the cached verifier isn't empty
             if (!entry->verifierName.empty()) {
                 updateUI(entry->verifierName, entry->videoUrl, entry->isLegacy);
             } else {
@@ -167,7 +154,6 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
             }
         }
         else if (level->m_demonDifficulty >= 5) {
-            // Level is not in cache, start fetching
             m_fields->m_label->setVisible(true);
             m_fields->m_label->setString("Checking List...");
             fetchData(level);
@@ -218,7 +204,6 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     void updateUI(const std::string& verifier, const std::string& video, bool isLegacy) {
         if (!m_fields->m_label) return;
 
-        // If verifier is empty, we shouldn't be showing this UI at all
         if (verifier.empty()) {
             m_fields->m_label->setVisible(false);
             if (m_fields->m_youtubeBtn) m_fields->m_youtubeBtn->setVisible(false);
@@ -277,7 +262,6 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
             web::WebRequest().userAgent(USER_AGENT).get(url),
             [this, id](web::WebResponse res) {
                 if (!res.ok()) {
-                    // Cache empty verifier so we don't spam the API for non-list levels
                     VerifierCache::get().insert(id, {"", "", false, std::chrono::system_clock::now()});
                     saveCache();
                     Loader::get()->queueInMainThread([this] {
@@ -312,7 +296,6 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
                     }
                 }
 
-                // Even if verifier is empty after parsing, we cache it
                 VerifierCache::get().insert(id, {verifier, video, legacy, std::chrono::system_clock::now()});
                 saveCache();
 
