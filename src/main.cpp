@@ -1,23 +1,22 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/LevelInfoLayer.hpp>
 #include <Geode/utils/web.hpp>
-#include <Geode/utils/async.hpp>
+#include <Geode/utils/file.hpp>
 #include <matjson.hpp>
+#include <matjson/std.hpp>
 
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
 #include <chrono>
-#include <filesystem>
-#include <fstream>
 #include <string>
 #include <vector>
+#include <filesystem>
 
 using namespace geode::prelude;
 
 namespace {
-    constexpr auto CACHE_FILENAME = "verifier_cache_v3.txt";
-    constexpr auto CACHE_ENTRY_SEPARATOR = '\t';
+    constexpr auto CACHE_FILENAME = "verifier_cache.json";
     constexpr auto API_URL_CLASSIC = "https://api.aredl.net/v2/api/aredl/levels";
     constexpr auto API_URL_PLATFORMER = "https://api.aredl.net/v2/api/arepl/levels";
     constexpr auto USER_AGENT = "Geode-AREDL-Mod/3.0";
@@ -32,8 +31,63 @@ namespace {
 struct CacheEntry {
     std::string verifierText;
     std::string videoUrl;
-    bool isLegacy{};
-    std::chrono::system_clock::time_point fetchedAt;
+    bool isLegacy;
+    long long timestamp;
+};
+
+template<>
+struct matjson::Serialize<CacheEntry> {
+    static geode::Result<CacheEntry> from_json(matjson::Value const& value) {
+        if (!value.isObject()) {
+            return geode::Err("CacheEntry must be an object");
+        }
+
+        CacheEntry entry;
+        entry.verifierText = "";
+        entry.videoUrl = "";
+        entry.isLegacy = false;
+        entry.timestamp = 0;
+
+        if (value.contains("verifier")) {
+            auto verifier = value["verifier"];
+            if (verifier.isString()) {
+                entry.verifierText = verifier.asString().unwrapOr("");
+            }
+        }
+
+        if (value.contains("video")) {
+            auto video = value["video"];
+            if (video.isString()) {
+                entry.videoUrl = video.asString().unwrapOr("");
+            }
+        }
+
+        if (value.contains("legacy")) {
+            auto legacy = value["legacy"];
+            if (legacy.isBool()) {
+                entry.isLegacy = legacy.asBool().unwrapOr(false);
+            }
+        }
+
+        if (value.contains("timestamp")) {
+            auto timestamp = value["timestamp"];
+            if (timestamp.isNumber()) {
+                entry.timestamp = static_cast<long long>(timestamp.asInt().unwrapOr(0));
+            }
+        }
+
+        return geode::Ok(entry);
+    }
+
+    static matjson::Value to_json(CacheEntry const& value) {
+        matjson::Value obj = matjson::makeObject({
+            {"verifier", value.verifierText},
+            {"video", value.videoUrl},
+            {"legacy", value.isLegacy},
+            {"timestamp", value.timestamp}
+        });
+        return obj;
+    }
 };
 
 class VerifierCache {
@@ -62,7 +116,7 @@ public:
         m_cache.clear();
     }
 
-    auto dump() const {
+    std::unordered_map<std::string, CacheEntry> dump() const {
         std::shared_lock lock(m_mutex);
         return m_cache;
     }
@@ -72,30 +126,52 @@ static std::filesystem::path getCachePath() {
     return Mod::get()->getSaveDir() / CACHE_FILENAME;
 }
 
-static void loadCache() {
+static void saveCache() {
+    if (Mod::get()->getSettingValue<bool>("disable-cache")) return;
+
     auto path = getCachePath();
-    if (!std::filesystem::exists(path)) return;
-    std::ifstream in(path);
-    std::string line;
-    while (std::getline(in, line)) {
-        auto parts = string::split(line, std::string(1, CACHE_ENTRY_SEPARATOR));
-        if (parts.size() < 4) continue;
-        try {
-            VerifierCache::get().insert(parts[0], {
-                parts[2], parts[3], (parts.size() >= 5 && parts[4] == "1"),
-                std::chrono::system_clock::time_point(std::chrono::seconds(utils::numFromString<long long>(parts[1]).unwrapOr(0)))
-            });
-        } catch (...) {}
+    auto data = VerifierCache::get().dump();
+
+    matjson::Value jsonObj = matjson::Value::object();
+    for (auto const& [key, entry] : data) {
+        jsonObj.set(key, matjson::Serialize<CacheEntry>::to_json(entry));
+    }
+
+    auto result = file::writeString(path, jsonObj.dump(matjson::NO_INDENTATION));
+    if (!result) {
+        log::error("Failed to save cache: {}", result.unwrapErr());
     }
 }
 
-static void saveCache() {
-    std::ofstream out(getCachePath(), std::ios::trunc);
-    for (auto const& [id, entry] : VerifierCache::get().dump()) {
-        auto epoch = std::chrono::duration_cast<std::chrono::seconds>(entry.fetchedAt.time_since_epoch()).count();
-        out << id << CACHE_ENTRY_SEPARATOR << epoch << CACHE_ENTRY_SEPARATOR
-            << entry.verifierText << CACHE_ENTRY_SEPARATOR << entry.videoUrl << CACHE_ENTRY_SEPARATOR
-            << (entry.isLegacy ? "1" : "0") << "\n";
+static void loadCache() {
+    if (Mod::get()->getSettingValue<bool>("disable-cache")) return;
+
+    auto path = getCachePath();
+
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec) || ec) return;
+
+    auto res = file::readJson(path);
+    if (!res) return;
+
+    auto json = res.unwrap();
+
+    if (!json.isObject()) return;
+
+    for (auto const& [key, value] : json) {
+        auto entryRes = matjson::Serialize<CacheEntry>::from_json(value);
+        if (entryRes) {
+            VerifierCache::get().insert(key, entryRes.unwrap());
+        }
+    }
+}
+
+static void clearCache() {
+    VerifierCache::get().clear();
+    auto path = getCachePath();
+    std::error_code ec;
+    if (std::filesystem::exists(path, ec) && !ec) {
+        std::filesystem::remove(path, ec);
     }
 }
 
@@ -112,7 +188,11 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
 
     bool init(GJGameLevel* level, bool p1) {
         if (!LevelInfoLayer::init(level, p1)) return false;
+
         static bool loaded = (loadCache(), true);
+
+        if (!Mod::get()->getSettingValue<bool>("show-label")) return true;
+
         buildUI();
         if (level->m_levelID > 0 && level->m_demonDifficulty >= 5) {
             refreshVerifierInfo();
@@ -127,17 +207,29 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     void buildUI() {
         auto menu = CCMenu::create();
         menu->setID("verifier-menu"_spr);
+
         m_fields->m_label = CCLabelBMFont::create("", "goldFont.fnt");
         m_fields->m_label->setScale(LABEL_TEXT_SCALE);
+
+        auto alignment = Mod::get()->getSettingValue<std::string>("label-alignment");
+        if (alignment == "Left") {
+            m_fields->m_label->setAnchorPoint({0.0f, 0.5f});
+        } else {
+            m_fields->m_label->setAnchorPoint({0.5f, 0.5f});
+        }
+
         m_fields->m_labelBtn = CCMenuItemSpriteExtra::create(m_fields->m_label, this, menu_selector(VerifierInfoLayer::onToggleMode));
         m_fields->m_labelBtn->setVisible(false);
+
         auto ytSprite = CCSprite::createWithSpriteFrameName("gj_ytIcon_001.png");
         ytSprite->setScale(YOUTUBE_ICON_SCALE);
         m_fields->m_youtubeBtn = CCMenuItemSpriteExtra::create(ytSprite, this, menu_selector(VerifierInfoLayer::onVideo));
         m_fields->m_youtubeBtn->setVisible(false);
+
         menu->addChild(m_fields->m_labelBtn);
         menu->addChild(m_fields->m_youtubeBtn);
         this->addChild(menu);
+
         if (auto creatorMenu = this->getChildByID("creator-info-menu")) {
             menu->setPosition(creatorMenu->getPosition() + ccp(0, (float)Mod::get()->getSettingValue<double>("y-offset")));
         }
@@ -147,6 +239,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         if (!m_level->m_twoPlayerMode) return;
         m_fields->m_is2PMode = !m_fields->m_is2PMode;
         refreshVerifierInfo();
+
         auto btn = static_cast<CCNode*>(sender);
         btn->stopAllActions();
         btn->runAction(CCSequence::create(
@@ -158,14 +251,17 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
 
     void refreshVerifierInfo() {
         std::string key = std::to_string(m_level->m_levelID) + (m_fields->m_is2PMode ? "_2p" : "");
-        if (auto entry = VerifierCache::get().fetch(key)) {
-            updateUI(entry.value(), m_fields->m_is2PMode);
-        } else {
-            m_fields->m_label->setString("Checking...");
-            m_fields->m_label->setColor({255, 255, 255});
-            m_fields->m_labelBtn->setVisible(true);
-            m_fields->m_youtubeBtn->setVisible(false);
+
+        if (!Mod::get()->getSettingValue<bool>("disable-cache")) {
+            if (auto entry = VerifierCache::get().fetch(key)) {
+                updateUI(entry.value(), m_fields->m_is2PMode);
+                return;
+            }
         }
+
+        m_fields->m_label->setString("Checking...");
+        m_fields->m_labelBtn->setVisible(true);
+        m_fields->m_youtubeBtn->setVisible(false);
     }
 
     void updateUI(const CacheEntry& entry, bool isDuo) {
@@ -178,33 +274,22 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         }
 
         m_fields->m_currentVideo = entry.videoUrl;
-
-        std::string prefix;
-        if (isDuo) {
-            prefix = "[2P] ";
-        } else if (m_level->m_twoPlayerMode) {
-            prefix = "[Solo] Verified by: ";
-        } else {
-            prefix = "Verified by: ";
-        }
+        std::string prefix = isDuo ? "[2P] " : (m_level->m_twoPlayerMode ? "[Solo] Verified by: " : "Verified by: ");
 
         m_fields->m_label->setString((prefix + entry.verifierText).c_str());
-        m_fields->m_label->setFntFile(entry.isLegacy ? "bigFont.fnt" : "goldFont.fnt");
 
-        float scale = entry.isLegacy ? LEGACY_TEXT_SCALE : LABEL_TEXT_SCALE;
+        bool useLegacyColor = entry.isLegacy && Mod::get()->getSettingValue<bool>("legacy-color");
+        m_fields->m_label->setFntFile(useLegacyColor ? "bigFont.fnt" : "goldFont.fnt");
+
+        float scale = useLegacyColor ? LEGACY_TEXT_SCALE : LABEL_TEXT_SCALE;
         m_fields->m_label->setScale(scale);
         m_fields->m_label->limitLabelWidth(LABEL_MAX_WIDTH, scale, 0.1f);
 
         m_fields->m_labelBtn->setContentSize(m_fields->m_label->getScaledContentSize());
         m_fields->m_label->setPosition(m_fields->m_labelBtn->getContentSize() / 2);
-
-        auto soloData = VerifierCache::get().fetch(std::to_string(m_level->m_levelID));
-        auto duoData = VerifierCache::get().fetch(std::to_string(m_level->m_levelID) + "_2p");
-        bool hasSolo = soloData.has_value() && !soloData->verifierText.empty();
-        bool hasDuo = duoData.has_value() && !duoData->verifierText.empty();
-
-        m_fields->m_labelBtn->setEnabled(m_level->m_twoPlayerMode && hasSolo && hasDuo);
         m_fields->m_labelBtn->setVisible(true);
+
+        m_fields->m_labelBtn->setEnabled(m_level->m_twoPlayerMode);
 
         bool showYT = !entry.videoUrl.empty() && Mod::get()->getSettingValue<bool>("show-youtube");
         m_fields->m_youtubeBtn->setVisible(showYT);
@@ -222,41 +307,79 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     void fetchData(std::string key, bool isDuoRequest) {
         std::string url = fmt::format("{}/{}", m_level->isPlatformer() ? API_URL_PLATFORMER : API_URL_CLASSIC, key);
         auto& task = isDuoRequest ? m_fields->m_duoTask : m_fields->m_soloTask;
+
         task.spawn(web::WebRequest().userAgent(USER_AGENT).get(url), [this, key](web::WebResponse const& res) {
             if (!res.ok()) {
-                VerifierCache::get().insert(key, { "", "", false, std::chrono::system_clock::now() });
+                long long now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                VerifierCache::get().insert(key, { "", "", false, now });
                 saveCache();
-                Loader::get()->queueInMainThread([this, key] {
-                    std::string currentKey = std::to_string(m_level->m_levelID) + (m_fields->m_is2PMode ? "_2p" : "");
-                    if (key == currentKey) m_fields->m_labelBtn->setVisible(false);
-                });
                 return;
             }
+
             auto json = res.json();
             if (!json.isOk()) return;
             auto root = json.unwrap();
+
             std::vector<std::string> names;
             std::string video = "";
-            bool legacy = root["legacy"].asBool().unwrapOr(false);
-            if (root.contains("verifications") && root["verifications"].isArray()) {
-                for (auto const& v : root["verifications"].asArray().unwrap()) {
-                    if (video.empty()) video = v["video_url"].asString().unwrapOr("");
-                    auto sub = v["submitted_by"];
-                    std::string name = sub["global_name"].asString().unwrapOr(sub["username"].asString().unwrapOr("Unknown"));
-                    if (std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+            bool legacy = false;
+
+            if (root.contains("legacy")) {
+                auto legacyVal = root["legacy"];
+                if (legacyVal.isBool()) {
+                    legacy = legacyVal.asBool().unwrapOr(false);
                 }
             }
-            std::string finalNames = "";
-            if (names.size() == 1) finalNames = names[0];
-            else if (names.size() >= 2) finalNames = names[0] + " & " + names[1];
-            CacheEntry entry = { finalNames, video, legacy, std::chrono::system_clock::now() };
+
+            if (root.contains("verifications")) {
+                auto verificationsVal = root["verifications"];
+                if (verificationsVal.isArray()) {
+                    for (auto const& v : verificationsVal) {
+                        if (!v.isObject()) continue;
+
+                        if (video.empty() && v.contains("video_url")) {
+                            auto videoUrl = v["video_url"];
+                            if (videoUrl.isString()) {
+                                video = videoUrl.asString().unwrapOr("");
+                            }
+                        }
+
+                        if (v.contains("submitted_by")) {
+                            auto sub = v["submitted_by"];
+                            if (sub.isObject()) {
+                                std::string name = "Unknown";
+
+                                if (sub.contains("global_name")) {
+                                    auto globalName = sub["global_name"];
+                                    if (globalName.isString()) {
+                                        name = globalName.asString().unwrapOr("Unknown");
+                                    }
+                                } else if (sub.contains("username")) {
+                                    auto username = sub["username"];
+                                    if (username.isString()) {
+                                        name = username.asString().unwrapOr("Unknown");
+                                    }
+                                }
+
+                                if (std::find(names.begin(), names.end(), name) == names.end()) {
+                                    names.push_back(name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            std::string finalNames = names.empty() ? "" : (names.size() == 1 ? names[0] : names[0] + " & " + names[1]);
+            long long now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            CacheEntry entry = { finalNames, video, legacy, now };
+
             VerifierCache::get().insert(key, entry);
             saveCache();
-            Loader::get()->queueInMainThread([this, key, entry] {
+
+            Loader::get()->queueInMainThread([this, key] {
                 std::string currentKey = std::to_string(m_level->m_levelID) + (m_fields->m_is2PMode ? "_2p" : "");
-                if (key == currentKey || (m_level->m_twoPlayerMode && key.find(std::to_string(m_level->m_levelID)) != std::string::npos)) {
-                    refreshVerifierInfo();
-                }
+                if (key == currentKey) refreshVerifierInfo();
             });
         });
     }
