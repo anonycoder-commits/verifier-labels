@@ -10,7 +10,7 @@
 	"name": "Verifier Labels",
 	"version": "v1.0.0",
 	"developer": "suposed",
-	"description": "Adds verifier names and video links to Extreme Demons using the AREDL API.",
+	"description": "Adds verifier names and video links to Extreme Demons using the AREDL/AREPL API.",
 	"dependencies": {
 		"geode.node-ids": {
 			"version": ">=1.22.0-beta.1",
@@ -31,15 +31,35 @@
 			"default": -8.0,
 			"min": -50.0,
 			"max": 50.0,
-			"control": {
-				"slider": true
-			}
+			"control": { "slider": true }
+		},
+		"label-alignment": {
+			"name": "Label Alignment",
+			"type": "string",
+			"default": "Center",
+			"one-of": ["Left", "Center"]
+		},
+		"legacy-color": {
+			"name": "Gray Out Legacy",
+			"description": "Show legacy list levels in gray.",
+			"type": "bool",
+			"default": true
 		},
 		"show-youtube": {
 			"name": "Show YouTube Button",
-			"description": "Show the link to the verification video if available.",
 			"type": "bool",
 			"default": true
+		},
+		"clear-cache-title": {
+			"name": "Data Management",
+			"type": "title"
+		},
+		"clear-cache-btn": {
+			"name": "Clear Cache",
+			"description": "Delete all saved verifier data.",
+			"type": "bool",
+			"default": false,
+			"control": { "button": true }
 		}
 	}
 }

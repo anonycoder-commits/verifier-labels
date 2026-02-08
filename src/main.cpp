@@ -4,32 +4,25 @@
 #include <Geode/utils/async.hpp>
 #include <matjson.hpp>
 
-#include <functional>
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
-#include <string>
-#include <stdexcept>
-#include <system_error>
 
 using namespace geode::prelude;
-
-// ============================================================================
-// CONFIGURATION
-// ============================================================================
 
 namespace {
     constexpr auto CACHE_FILENAME = "verifier_cache.txt";
     constexpr auto CACHE_ENTRY_SEPARATOR = '\t';
-    constexpr auto AREDL_API_BASE_URL = "https://api.aredl.net/v2/api/aredl/levels";
-    constexpr auto USER_AGENT = "Mozilla/5.0";
+
+    constexpr auto API_URL_CLASSIC = "https://api.aredl.net/v2/api/aredl/levels";
+    constexpr auto API_URL_PLATFORMER = "https://api.aredl.net/v2/api/arepl/levels";
+
+    constexpr auto USER_AGENT = "Geode-AREDL-Mod/2.0";
     constexpr auto LABEL_TEXT_SCALE = 0.4f;
     constexpr auto YOUTUBE_ICON_SCALE = 0.32f;
-    constexpr auto MENU_Y_OFFSET = -8.0f;
     constexpr auto LABEL_MAX_WIDTH = 120.f;
     constexpr auto YOUTUBE_ICON_X_OFFSET = 8.0f;
     constexpr auto FALLBACK_POSITION_X = 100.f;
@@ -37,360 +30,280 @@ namespace {
 }
 
 // ============================================================================
-// CUSTOM EXCEPTIONS
+// CACHE
 // ============================================================================
 
-class CacheException : public std::runtime_error {
-public:
-    explicit CacheException(const std::string& message) : std::runtime_error(message) {}
+struct CacheEntry {
+    std::string verifierName;
+    std::string videoUrl;
+    bool isLegacy;
+    std::chrono::system_clock::time_point fetchedAt;
 };
 
-class APIException : public std::runtime_error {
+class VerifierCache {
+    std::unordered_map<int, CacheEntry> m_cache;
+    mutable std::shared_mutex m_mutex;
+
 public:
-    explicit APIException(const std::string& message) : std::runtime_error(message) {}
+    static VerifierCache& get() {
+        static VerifierCache instance;
+        return instance;
+    }
+
+    std::optional<CacheEntry> fetch(int levelID) const {
+        std::shared_lock lock(m_mutex);
+        if (auto it = m_cache.find(levelID); it != m_cache.end())
+            return it->second;
+        return std::nullopt;
+    }
+
+    void insert(int levelID, CacheEntry entry) {
+        std::unique_lock lock(m_mutex);
+        m_cache[levelID] = std::move(entry);
+    }
+
+    void clear() {
+        std::unique_lock lock(m_mutex);
+        m_cache.clear();
+    }
+
+    std::unordered_map<int, CacheEntry> dump() const {
+        std::shared_lock lock(m_mutex);
+        return m_cache;
+    }
 };
 
-// ============================================================================
-// CACHE SYSTEM
-// ============================================================================
+static std::filesystem::path getCachePath() {
+    return Mod::get()->getSaveDir() / CACHE_FILENAME;
+}
 
-namespace {
-    struct CacheEntry {
-        std::string verifierName;
-        std::string videoUrl;
-        std::chrono::system_clock::time_point fetchedAt;
-        
-        CacheEntry() = default;
-        CacheEntry(std::string verifier, std::string video, std::chrono::system_clock::time_point time)
-            : verifierName(std::move(verifier)), videoUrl(std::move(video)), fetchedAt(time) {}
-    };
+static void loadCache() {
+    auto path = getCachePath();
+    if (!std::filesystem::exists(path)) return;
 
-    class VerifierCache {
-    private:
-        std::unordered_map<int, CacheEntry> m_cache;
-        mutable std::shared_mutex m_mutex;
-        
-    public:
-        static VerifierCache& getInstance() {
-            static VerifierCache instance;
-            return instance;
-        }
-        
-        std::optional<CacheEntry> get(int levelID) const {
-            std::shared_lock lock(m_mutex);
-            auto it = m_cache.find(levelID);
-            return it != m_cache.end() ? std::optional<CacheEntry>{it->second} : std::nullopt;
-        }
-        
-        void put(int levelID, CacheEntry entry) {
-            std::unique_lock lock(m_mutex);
-            m_cache[levelID] = std::move(entry);
-        }
-        
-        bool contains(int levelID) const {
-            std::shared_lock lock(m_mutex);
-            return m_cache.contains(levelID);
-        }
-        
-        std::unordered_map<int, CacheEntry> getAll() const {
-            std::shared_lock lock(m_mutex);
-            return m_cache;
-        }
-    };
-    
-    static std::filesystem::path getCacheFilePath() {
-        if (auto mod = geode::Mod::get()) {
-            return mod->getSaveDir() / CACHE_FILENAME;
-        }
-        throw CacheException("Unable to get mod directory for cache file");
-    }
+    std::ifstream in(path);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+        auto parts = string::split(line, std::string(1, CACHE_ENTRY_SEPARATOR));
+        if (parts.size() < 4) continue;
 
-    static void loadCacheFromDisk() {
         try {
-            auto cachePath = getCacheFilePath();
-            std::ifstream in(cachePath);
-            if (!in) return;
+            int id = std::stoi(parts[0]);
+            long long epoch = std::stoll(parts[1]);
+            bool legacy = (parts.size() >= 5 && parts[4] == "1");
 
-            std::string line;
-            while (std::getline(in, line)) {
-                if (line.empty()) continue;
-
-                auto parts = geode::utils::string::split(line, std::string(1, CACHE_ENTRY_SEPARATOR));
-                if (parts.size() < 4) continue;
-
-                try {
-                    int id = std::stoi(parts[0]);
-                    long long epoch = std::stoll(parts[1]);
-                    std::string verifier = parts[2];
-                    std::string video = parts[3];
-
-                    VerifierCache::getInstance().put(id, {
-                        std::move(verifier), 
-                        std::move(video), 
-                        std::chrono::system_clock::time_point(std::chrono::seconds(epoch))
-                    });
-                } catch (const std::exception& e) {
-                    log::warn("Failed to parse cache entry: {}", e.what());
-                    continue;
-                }
-            }
-        } catch (const std::exception& e) {
-            log::error("Failed to load cache from disk: {}", e.what());
-        }
+            VerifierCache::get().insert(id, {
+                parts[2], parts[3], legacy,
+                std::chrono::system_clock::time_point(std::chrono::seconds(epoch))
+            });
+        } catch (...) {}
     }
+}
 
-    static void saveCacheToDisk() {
-        try {
-            auto cachePath = getCacheFilePath();
-            std::ofstream out(cachePath, std::ios::trunc);
-            if (!out) {
-                throw CacheException("Failed to open cache file for writing");
-            }
-
-            auto cache = VerifierCache::getInstance().getAll();
-            for (auto const& [id, entry] : cache) {
-                auto epoch = std::chrono::duration_cast<std::chrono::seconds>(entry.fetchedAt.time_since_epoch()).count();
-                out << id << CACHE_ENTRY_SEPARATOR << epoch << CACHE_ENTRY_SEPARATOR 
-                    << entry.verifierName << CACHE_ENTRY_SEPARATOR << entry.videoUrl << '\n';
-            }
-        } catch (const std::exception& e) {
-            log::error("Failed to save cache to disk: {}", e.what());
-        }
+static void saveCache() {
+    std::ofstream out(getCachePath(), std::ios::trunc);
+    for (const auto& [id, entry] : VerifierCache::get().dump()) {
+        auto epoch = std::chrono::duration_cast<std::chrono::seconds>(entry.fetchedAt.time_since_epoch()).count();
+        out << id << CACHE_ENTRY_SEPARATOR << epoch << CACHE_ENTRY_SEPARATOR
+            << entry.verifierName << CACHE_ENTRY_SEPARATOR << entry.videoUrl
+            << CACHE_ENTRY_SEPARATOR << (entry.isLegacy ? "1" : "0") << '\n';
     }
 }
 
 // ============================================================================
-// VERIFIER INFO LAYER
+// SETTINGS
+// ============================================================================
+
+$execute {
+    listenForSettingChanges<bool>("clear-cache-btn", [](bool value) {
+        if (value) {
+            VerifierCache::get().clear();
+            std::error_code ec;
+            std::filesystem::remove(getCachePath(), ec);
+
+            Loader::get()->queueInMainThread([] {
+                FLAlertLayer::create("Success", "Verifier cache cleared.", "OK")->show();
+                Mod::get()->setSettingValue("clear-cache-btn", false);
+            });
+        }
+    });
+}
+
+// ============================================================================
+// HOOKS
 // ============================================================================
 
 class $modify(VerifierInfoLayer, LevelInfoLayer) {
     struct Fields {
         std::string m_videoUrl;
-        CCLabelBMFont* m_label;
-        CCSprite* m_youtubeIcon;
-        CCMenuItemSpriteExtra* m_youtubeBtn;
+        CCLabelBMFont* m_label = nullptr;
+        CCMenuItemSpriteExtra* m_youtubeBtn = nullptr;
         async::TaskHolder<web::WebResponse> m_webTask;
-        bool m_cacheInitialized;
-        
-        Fields() : m_label(nullptr), m_youtubeIcon(nullptr), m_youtubeBtn(nullptr), m_cacheInitialized(false) {}
+        bool m_cacheLoaded = false;
     };
 
-    bool init(GJGameLevel* level, bool p1);
-    void updateUI(const std::string& verifier, const std::string& video);
-    void onVideoClick(CCObject* sender);
-    void fetchAREDLData(int levelID);
-    void initializeCacheIfNeeded();
-    void createUIElements();
-    void positionUIElements();
-};
+    bool init(GJGameLevel* level, bool p1) {
+        if (!LevelInfoLayer::init(level, p1)) return false;
+        if (!Mod::get()->getSettingValue<bool>("show-label")) return true;
 
-// ============================================================================
-// IMPLEMENTATION
-// ============================================================================
+        if (!m_fields->m_cacheLoaded) {
+            loadCache();
+            m_fields->m_cacheLoaded = true;
+        }
 
-void VerifierInfoLayer::initializeCacheIfNeeded() {
-    if (!m_fields->m_cacheInitialized) {
-        loadCacheFromDisk();
-        m_fields->m_cacheInitialized = true;
+        buildUI();
+        refreshLayout();
+
+        if (level->m_levelID <= 0) return true;
+
+        if (auto entry = VerifierCache::get().fetch(level->m_levelID)) {
+            updateUI(entry->verifierName, entry->videoUrl, entry->isLegacy);
+        }
+        else if (level->m_demonDifficulty == 6) {
+            m_fields->m_label->setVisible(true);
+            fetchData(level);
+        }
+
+        return true;
     }
-}
 
-void VerifierInfoLayer::createUIElements() {
-    // Create loading label
-    auto label = CCLabelBMFont::create(". . .", "goldFont.fnt");
-    label->setScale(LABEL_TEXT_SCALE);
-    m_fields->m_label = label;
+    void buildUI() {
+        auto label = CCLabelBMFont::create("Checking List...", "goldFont.fnt");
+        label->setScale(LABEL_TEXT_SCALE);
+        label->setVisible(false);
+        m_fields->m_label = label;
 
-    // Create YouTube button with sprite
-    auto youtubeIcon = CCSprite::createWithSpriteFrameName("gj_ytIcon_001.png");
-    if (!youtubeIcon) {
-        log::warn("Failed to load YouTube icon sprite");
-        return;
+        auto ytSprite = CCSprite::createWithSpriteFrameName("gj_ytIcon_001.png");
+        ytSprite->setScale(YOUTUBE_ICON_SCALE);
+
+        auto ytBtn = CCMenuItemSpriteExtra::create(ytSprite, this, menu_selector(VerifierInfoLayer::onVideo));
+        ytBtn->setVisible(false);
+        m_fields->m_youtubeBtn = ytBtn;
+
+        auto menu = CCMenu::create();
+        menu->setID("verifier-menu"_spr);
+        menu->addChild(label);
+        menu->addChild(ytBtn);
+        this->addChild(menu);
     }
-    youtubeIcon->setScale(YOUTUBE_ICON_SCALE);
-    
-    auto youtubeBtn = CCMenuItemSpriteExtra::create(
-        youtubeIcon,
-        this,
-        menu_selector(VerifierInfoLayer::onVideoClick)
-    );
-    youtubeBtn->setVisible(false);
-    m_fields->m_youtubeBtn = youtubeBtn;
-    m_fields->m_youtubeIcon = youtubeIcon;
 
-    // Create menu and add elements
-    auto menu = CCMenu::create();
-    menu->setID("verifier-menu"_spr);
-    menu->addChild(label);
-    menu->addChild(youtubeBtn);
-    this->addChild(menu);
-}
+    void refreshLayout() {
+        auto menu = this->getChildByID("verifier-menu"_spr);
+        if (!menu) return;
 
-void VerifierInfoLayer::positionUIElements() {
-    if (auto menu = this->getChildByID("verifier-menu"_spr)) {
-        if (auto creatorMenu = this->getChildByID("creator-info-menu")) {
-            auto creatorPos = creatorMenu->getPosition();
-            auto yOffset = static_cast<float>(Mod::get()->getSettingValue<double>("y-offset"));
-            menu->setPosition({creatorPos.x, creatorPos.y + yOffset});
+        auto creatorMenu = this->getChildByID("creator-info-menu");
+        if (creatorMenu) {
+            auto pos = creatorMenu->getPosition();
+            float yOff = static_cast<float>(Mod::get()->getSettingValue<double>("y-offset"));
+            float xOff = 0.f;
+
+            if (Mod::get()->getSettingValue<std::string>("label-alignment") == "Left") {
+                xOff = -20.f;
+            }
+            menu->setPosition({pos.x + xOff, pos.y + yOff});
         } else {
             menu->setPosition({FALLBACK_POSITION_X, FALLBACK_POSITION_Y});
-            log::warn("Creator info menu not found, using fallback position");
         }
     }
-}
 
-bool VerifierInfoLayer::init(GJGameLevel* level, bool p1) {
-    if (!LevelInfoLayer::init(level, p1)) return false;
+    void updateUI(const std::string& verifier, const std::string& video, bool isLegacy) {
+        if (!m_fields->m_label) return;
 
-    // Check if user disabled the mod in settings
-    if (!Mod::get()->getSettingValue<bool>("show-label")) return true;
-
-    try {
-        initializeCacheIfNeeded();
-        createUIElements();
-        positionUIElements();
-
-        // Validate level ID
-        int levelID = level->m_levelID;
-        if (levelID <= 0) {
-            log::warn("Invalid level ID: {}", levelID);
-            return true;
-        }
-
-        // Check cache first
-        if (auto cachedEntry = VerifierCache::getInstance().get(levelID)) {
-            updateUI(cachedEntry->verifierName, cachedEntry->videoUrl);
-            return true;
-        }
-
-        // 6 = Extreme Demon
-        if (level->m_demonDifficulty == 6) {
-            m_fields->m_label->setVisible(true);
-            fetchAREDLData(levelID);
-        }
-
-    } catch (const std::exception& e) {
-        log::error("Error initializing VerifierInfoLayer: {}", e.what());
-    }
-
-    return true;
-}
-
-void VerifierInfoLayer::updateUI(const std::string& verifier, const std::string& video) {
-    if (!m_fields->m_label) {
-        log::error("Label is null in updateUI");
-        return;
-    }
-
-    try {
-        const auto displayText = fmt::format("Verified by: {}", verifier);
-        m_fields->m_label->setString(displayText.c_str());
-        m_fields->m_label->limitLabelWidth(LABEL_MAX_WIDTH, LABEL_TEXT_SCALE, 0.1f);
-        m_fields->m_label->setVisible(true);
-        // Position label at menu origin
-        m_fields->m_label->setPosition({0.f, 0.f});
         m_fields->m_videoUrl = video;
 
-        // Update YouTube button visibility and position
+        std::string finalName = verifier;
+        if (m_level->m_twoPlayerMode && !verifier.empty()) {
+            finalName += " (Solo)";
+        }
+
+        std::string text = finalName.empty() ? "No Info" : fmt::format("Verified by: {}", finalName);
+
+        m_fields->m_label->setString(text.c_str());
+        m_fields->m_label->limitLabelWidth(LABEL_MAX_WIDTH, LABEL_TEXT_SCALE, 0.1f);
+        m_fields->m_label->setVisible(true);
+
+        bool gray = isLegacy && Mod::get()->getSettingValue<bool>("legacy-color");
+        m_fields->m_label->setColor(gray ? ccColor3B{160, 160, 160} : ccColor3B{255, 255, 255});
+
+        bool leftAlign = Mod::get()->getSettingValue<std::string>("label-alignment") == "Left";
+        m_fields->m_label->setAnchorPoint(leftAlign ? CCPoint{0.f, 0.5f} : CCPoint{0.5f, 0.5f});
+        m_fields->m_label->setPosition(leftAlign ? CCPoint{-50.f, 0.f} : CCPoint{0.f, 0.f});
+
         if (m_fields->m_youtubeBtn) {
-            // Only show if video exists AND setting is enabled
-            bool showBtn = !video.empty() && Mod::get()->getSettingValue<bool>("show-youtube");
-            
-            m_fields->m_youtubeBtn->setVisible(showBtn);
-            if (showBtn) {
-                const auto labelSize = m_fields->m_label->getScaledContentSize();
-                m_fields->m_youtubeBtn->setPosition({
-                    (labelSize.width / 2) + YOUTUBE_ICON_X_OFFSET, 
-                    0.f
-                });
+            bool show = !video.empty() && Mod::get()->getSettingValue<bool>("show-youtube");
+            m_fields->m_youtubeBtn->setVisible(show);
+
+            if (show) {
+                float w = m_fields->m_label->getScaledContentSize().width;
+                float x = leftAlign ? (-50.f + w + YOUTUBE_ICON_X_OFFSET)
+                                    : ((w / 2) + YOUTUBE_ICON_X_OFFSET);
+                m_fields->m_youtubeBtn->setPosition({x, 0.f});
             }
         }
-    } catch (const std::exception& e) {
-        log::error("Error updating UI: {}", e.what());
     }
-}
 
-void VerifierInfoLayer::onVideoClick(CCObject* sender) {
-    try {
-        if (!m_fields->m_videoUrl.empty()) {
-            web::openLinkInBrowser(m_fields->m_videoUrl);
-        } else {
-            log::warn("No video URL available for level");
-        }
-    } catch (const std::exception& e) {
-        log::error("Error opening video link: {}", e.what());
+    void onVideo(CCObject*) {
+        if (!m_fields->m_videoUrl.empty()) web::openLinkInBrowser(m_fields->m_videoUrl);
     }
-}
 
-void VerifierInfoLayer::fetchAREDLData(int levelID) {
-    try {
-        const auto url = fmt::format("{}/{}", AREDL_API_BASE_URL, levelID);
-        
+    void fetchData(GJGameLevel* level) {
+        int id = level->m_levelID;
+        bool platformer = level->isPlatformer();
+
+        // Always fetch base endpoint to get Solo verification
+        std::string url = fmt::format("{}/{}",
+            platformer ? API_URL_PLATFORMER : API_URL_CLASSIC, id);
+
         m_fields->m_webTask.spawn(
             web::WebRequest().userAgent(USER_AGENT).get(url),
-            [this, levelID](web::WebResponse response) {
-                try {
-                    // Handle HTTP errors
-                    if (!response.ok()) {
-                        const auto errorMessage = response.code() == 404 ? "Not on AREDL" : "Error fetching";
-                        if (m_fields->m_label) {
-                            m_fields->m_label->setString(errorMessage);
-                        }
-                        log::warn("API request failed for level {}: {}", levelID, response.code());
-                        return;
+            [this, id](web::WebResponse res) {
+                if (!res.ok()) {
+                    if (res.code() == 404) {
+                        VerifierCache::get().insert(id, {"", "", false, std::chrono::system_clock::now()});
+                        Loader::get()->queueInMainThread([this] {
+                            if (m_fields->m_label) m_fields->m_label->setVisible(false);
+                        });
                     }
+                    return;
+                }
 
-                    // Parse JSON response
-                    auto jsonResult = response.json();
-                    if (!jsonResult.isOk()) {
-                        log::error("Failed to parse JSON response for level {}: {}", levelID, jsonResult.unwrapErr());
-                        if (m_fields->m_label) {
-                            m_fields->m_label->setString("Parse error");
-                        }
-                        return;
-                    }
+                auto json = res.json();
+                if (!json.isOk()) return;
 
-                    const auto& levelData = jsonResult.unwrap();
-                    std::string verifierName = "Unknown";
-                    std::string videoUrl;
+                auto data = json.unwrap();
+                std::string verifier = "Unknown";
+                std::string video = "";
+                bool found = false;
+                bool legacy = false;
 
-                    // Extract verification data safely
-                    if (levelData.contains("verifications")) {
-                        const auto verifications = levelData["verifications"].asArray().unwrapOr(std::vector<matjson::Value>{});
-                        if (!verifications.empty()) {
-                            const auto& firstVerif = verifications[0];
-                            videoUrl = firstVerif["video_url"].asString().unwrapOr("");
+                if (data.contains("legacy"))
+                    legacy = data["legacy"].asBool().unwrapOr(false);
 
-                            if (firstVerif.contains("submitted_by")) {
-                                const auto& user = firstVerif["submitted_by"];
-                                verifierName = user["global_name"].asString().unwrapOr(
-                                    user["name"].asString().unwrapOr("Unknown")
-                                );
+                if (data.contains("verifications")) {
+                    if (auto arr = data["verifications"].asArray(); arr.isOk()) {
+                        auto& list = arr.unwrap();
+                        if (!list.empty()) {
+                            auto& v = list[0];
+                            video = v["video_url"].asString().unwrapOr("");
+                            if (v.contains("submitted_by")) {
+                                auto u = v["submitted_by"];
+                                auto g = u["global_name"].asString();
+                                verifier = g.isOk() ? g.unwrap() : u["name"].asString().unwrapOr("Unknown");
+                                found = true;
                             }
                         }
                     }
+                }
 
-                    // Update UI and cache
-                    updateUI(verifierName, videoUrl);
-                    VerifierCache::getInstance().put(levelID, {
-                        verifierName, 
-                        videoUrl, 
-                        std::chrono::system_clock::now()
+                if (found) {
+                    VerifierCache::get().insert(id, {verifier, video, legacy, std::chrono::system_clock::now()});
+                    saveCache();
+                    Loader::get()->queueInMainThread([this, verifier, video, legacy] {
+                        updateUI(verifier, video, legacy);
                     });
-                    saveCacheToDisk();
-                    
-                } catch (const std::exception& e) {
-                    log::error("Error processing API response for level {}: {}", levelID, e.what());
-                    if (m_fields->m_label) {
-                        m_fields->m_label->setString("Processing error");
-                    }
                 }
             }
         );
-    } catch (const std::exception& e) {
-        log::error("Error fetching AREDL data for level {}: {}", levelID, e.what());
-        if (m_fields->m_label) {
-            m_fields->m_label->setString("Fetch error");
-        }
     }
-}
+};
