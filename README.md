@@ -24,8 +24,4 @@ Adjust these settings in the Geode menu:
 * **Enable Labels**: Toggle the mod UI on or off.
 * **Vertical Position**: Move the label up or down to avoid overlapping other mods.
 * **Show YouTube Button**: Toggle the visibility of the video link icon.
-
-### Requirements
-* **Geometry Dash**: 2.2081+
-* **Geode SDK**: 5.0.0-alpha.1+
-* **Dependency**: `geode.node-ids`
+* **Gray Out Legacy**: Show legacy list levels in gray.
