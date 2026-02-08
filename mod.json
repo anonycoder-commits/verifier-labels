@@ -1,0 +1,45 @@
+{
+	"geode": "5.0.0-alpha.1",
+	"gd": {
+		"win": "2.2081",
+		"android": "2.2081",
+		"mac": "2.2081",
+		"ios": "2.2081"
+	},
+	"id": "suposed.verifier_labels",
+	"name": "Verifier Labels",
+	"version": "v1.0.0",
+	"developer": "suposed",
+	"description": "Adds verifier names and video links to Extreme Demons using the AREDL API.",
+	"dependencies": {
+		"geode.node-ids": {
+			"version": ">=1.22.0-beta.1",
+			"importance": "required"
+		}
+	},
+	"settings": {
+		"show-label": {
+			"name": "Enable Labels",
+			"description": "Show verifier information on Extreme Demons.",
+			"type": "bool",
+			"default": true
+		},
+		"y-offset": {
+			"name": "Vertical Position",
+			"description": "Adjust the label height relative to the creator name.",
+			"type": "float",
+			"default": -8.0,
+			"min": -50.0,
+			"max": 50.0,
+			"control": {
+				"slider": true
+			}
+		},
+		"show-youtube": {
+			"name": "Show YouTube Button",
+			"description": "Show the link to the verification video if available.",
+			"type": "bool",
+			"default": true
+		}
+	}
+}
