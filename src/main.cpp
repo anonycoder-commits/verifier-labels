@@ -33,7 +33,7 @@ namespace {
 struct CacheEntry {
     std::string verifierName;
     std::string videoUrl;
-    bool isLegacy;
+    bool isLegacy{};
     std::chrono::system_clock::time_point fetchedAt;
 };
 
@@ -49,12 +49,12 @@ public:
 
     std::optional<CacheEntry> fetch(int levelID) const {
         std::shared_lock lock(m_mutex);
-        if (auto it = m_cache.find(levelID); it != m_cache.end())
+        if (const auto it = m_cache.find(levelID); it != m_cache.end())
             return it->second;
         return std::nullopt;
     }
 
-    void insert(int levelID, CacheEntry entry) {
+    void insert(const int levelID, CacheEntry entry) {
         std::unique_lock lock(m_mutex);
         m_cache[levelID] = std::move(entry);
     }
@@ -75,7 +75,7 @@ static std::filesystem::path getCachePath() {
 }
 
 static void loadCache() {
-    auto path = getCachePath();
+    const auto path = getCachePath();
     if (!std::filesystem::exists(path)) return;
 
     std::ifstream in(path);
@@ -86,7 +86,7 @@ static void loadCache() {
         if (parts.size() < 4) continue;
 
         try {
-            int id = utils::numFromString<int>(parts[0]).unwrapOr(0);
+            const int id = utils::numFromString<int>(parts[0]).unwrapOr(0);
             long long epoch = utils::numFromString<long long>(parts[1]).unwrapOr(0);
             bool legacy = (parts.size() >= 5 && parts[4] == "1");
 
@@ -101,7 +101,7 @@ static void loadCache() {
 static void saveCache() {
     std::ofstream out(getCachePath(), std::ios::trunc);
     for (const auto& [id, entry] : VerifierCache::get().dump()) {
-        auto epoch = std::chrono::duration_cast<std::chrono::seconds>(entry.fetchedAt.time_since_epoch()).count();
+        const auto epoch = std::chrono::duration_cast<std::chrono::seconds>(entry.fetchedAt.time_since_epoch()).count();
         out << id << CACHE_ENTRY_SEPARATOR << epoch << CACHE_ENTRY_SEPARATOR
             << entry.verifierName << CACHE_ENTRY_SEPARATOR << entry.videoUrl
             << CACHE_ENTRY_SEPARATOR << (entry.isLegacy ? "1" : "0") << '\n';
@@ -132,7 +132,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         bool m_cacheLoaded = false;
     };
 
-    bool init(GJGameLevel* level, bool p1) {
+    auto init(GJGameLevel *level, bool p1) -> bool {
         if (!LevelInfoLayer::init(level, p1)) return false;
         if (!Mod::get()->getSettingValue<bool>("show-label")) return true;
 
@@ -146,7 +146,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
 
         if (level->m_levelID <= 0) return true;
 
-        if (auto entry = VerifierCache::get().fetch(level->m_levelID)) {
+        if (const auto entry = VerifierCache::get().fetch(level->m_levelID)) {
             if (!entry->verifierName.empty()) {
                 updateUI(entry->verifierName, entry->videoUrl, entry->isLegacy);
             } else {
@@ -163,19 +163,19 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     }
 
     void buildUI() {
-        auto label = CCLabelBMFont::create("", "goldFont.fnt");
+        const auto label = CCLabelBMFont::create("", "goldFont.fnt");
         label->setScale(LABEL_TEXT_SCALE);
         label->setVisible(false);
         m_fields->m_label = label;
 
-        auto ytSprite = CCSprite::createWithSpriteFrameName("gj_ytIcon_001.png");
+        const auto ytSprite = CCSprite::createWithSpriteFrameName("gj_ytIcon_001.png");
         ytSprite->setScale(YOUTUBE_ICON_SCALE);
 
-        auto ytBtn = CCMenuItemSpriteExtra::create(ytSprite, this, menu_selector(VerifierInfoLayer::onVideo));
+        const auto ytBtn = CCMenuItemSpriteExtra::create(ytSprite, this, menu_selector(VerifierInfoLayer::onVideo));
         ytBtn->setVisible(false);
         m_fields->m_youtubeBtn = ytBtn;
 
-        auto menu = CCMenu::create();
+        const auto menu = CCMenu::create();
         menu->setID("verifier-menu"_spr);
         menu->addChild(label);
         menu->addChild(ytBtn);
@@ -183,13 +183,12 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     }
 
     void refreshLayout() {
-        auto menu = this->getChildByID("verifier-menu"_spr);
+        const auto menu = this->getChildByID("verifier-menu"_spr);
         if (!menu) return;
 
-        auto creatorMenu = this->getChildByID("creator-info-menu");
-        if (creatorMenu) {
-            auto pos = creatorMenu->getPosition();
-            float yOff = static_cast<float>(Mod::get()->getSettingValue<double>("y-offset"));
+        if (const auto creatorMenu = this->getChildByID("creator-info-menu")) {
+            const auto pos = creatorMenu->getPosition();
+            const auto yOff = static_cast<float>(Mod::get()->getSettingValue<double>("y-offset"));
             float xOff = 0.f;
 
             if (Mod::get()->getSettingValue<std::string>("label-alignment") == "Left") {
@@ -201,7 +200,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         }
     }
 
-    void updateUI(const std::string& verifier, const std::string& video, bool isLegacy) {
+    void updateUI(const std::string& verifier, const std::string& video, const bool isLegacy) {
         if (!m_fields->m_label) return;
 
         if (verifier.empty()) {
@@ -217,29 +216,29 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
             finalName += " (Solo)";
         }
 
-        std::string text = fmt::format("Verified by: {}", finalName);
+        const std::string text = fmt::format("Verified by: {}", finalName);
 
         m_fields->m_label->setFntFile(isLegacy ? "bigFont.fnt" : "goldFont.fnt");
         m_fields->m_label->setString(text.c_str());
 
-        float scale = isLegacy ? LEGACY_TEXT_SCALE : LABEL_TEXT_SCALE;
+        const float scale = isLegacy ? LEGACY_TEXT_SCALE : LABEL_TEXT_SCALE;
         m_fields->m_label->setScale(scale);
         m_fields->m_label->limitLabelWidth(LABEL_MAX_WIDTH, scale, 0.1f);
         m_fields->m_label->setVisible(true);
 
-        bool gray = isLegacy && Mod::get()->getSettingValue<bool>("legacy-color");
+        const bool gray = isLegacy && Mod::get()->getSettingValue<bool>("legacy-color");
         m_fields->m_label->setColor(gray ? ccColor3B{160, 160, 160} : ccColor3B{255, 255, 255});
 
-        bool leftAlign = Mod::get()->getSettingValue<std::string>("label-alignment") == "Left";
+        const bool leftAlign = Mod::get()->getSettingValue<std::string>("label-alignment") == "Left";
         m_fields->m_label->setAnchorPoint(leftAlign ? CCPoint{0.f, 0.5f} : CCPoint{0.5f, 0.5f});
         m_fields->m_label->setPosition(leftAlign ? CCPoint{-50.f, 0.f} : CCPoint{0.f, 0.f});
 
         if (m_fields->m_youtubeBtn) {
-            bool show = !video.empty() && Mod::get()->getSettingValue<bool>("show-youtube");
+            const bool show = !video.empty() && Mod::get()->getSettingValue<bool>("show-youtube");
             m_fields->m_youtubeBtn->setVisible(show);
 
             if (show) {
-                float w = m_fields->m_label->getScaledContentSize().width;
+                const float w = m_fields->m_label->getScaledContentSize().width;
                 float x = leftAlign ? (-50.f + w + YOUTUBE_ICON_X_OFFSET)
                                     : ((w / 2) + YOUTUBE_ICON_X_OFFSET);
                 m_fields->m_youtubeBtn->setPosition({x, 0.f});
@@ -253,14 +252,14 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
 
     void fetchData(GJGameLevel* level) {
         int id = level->m_levelID;
-        bool platformer = level->isPlatformer();
+        const bool platformer = level->isPlatformer();
 
-        std::string url = fmt::format("{}/{}",
+        const std::string url = fmt::format("{}/{}",
             platformer ? API_URL_PLATFORMER : API_URL_CLASSIC, id);
 
         m_fields->m_webTask.spawn(
             web::WebRequest().userAgent(USER_AGENT).get(url),
-            [this, id](web::WebResponse res) {
+            [this, id](const web::WebResponse& res) {
                 if (!res.ok()) {
                     VerifierCache::get().insert(id, {"", "", false, std::chrono::system_clock::now()});
                     saveCache();
@@ -274,8 +273,8 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
                 if (!json.isOk()) return;
 
                 auto data = json.unwrap();
-                std::string verifier = "";
-                std::string video = "";
+                std::string verifier;
+                std::string video;
                 bool legacy = false;
 
                 if (data.contains("legacy"))
@@ -283,12 +282,11 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
 
                 if (data.contains("verifications")) {
                     if (auto arr = data["verifications"].asArray(); arr.isOk()) {
-                        auto& list = arr.unwrap();
-                        if (!list.empty()) {
+                        if (auto& list = arr.unwrap(); !list.empty()) {
                             auto& v = list[0];
                             video = v["video_url"].asString().unwrapOr("");
                             if (v.contains("submitted_by")) {
-                                auto u = v["submitted_by"];
+                                const auto& u = v["submitted_by"];
                                 auto g = u["global_name"].asString();
                                 verifier = g.isOk() ? g.unwrap() : u["name"].asString().unwrapOr("Unknown");
                             }
