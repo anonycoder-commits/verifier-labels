@@ -22,8 +22,9 @@ namespace {
 
     constexpr auto USER_AGENT = "Geode-AREDL-Mod/2.0";
     constexpr auto LABEL_TEXT_SCALE = 0.4f;
+    constexpr auto LEGACY_TEXT_SCALE = 0.35f;
     constexpr auto YOUTUBE_ICON_SCALE = 0.32f;
-    constexpr auto LABEL_MAX_WIDTH = 120.f;
+    constexpr auto LABEL_MAX_WIDTH = 200.f;
     constexpr auto YOUTUBE_ICON_X_OFFSET = 8.0f;
     constexpr auto FALLBACK_POSITION_X = 100.f;
     constexpr auto FALLBACK_POSITION_Y = 100.f;
@@ -158,10 +159,17 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         if (level->m_levelID <= 0) return true;
 
         if (auto entry = VerifierCache::get().fetch(level->m_levelID)) {
-            updateUI(entry->verifierName, entry->videoUrl, entry->isLegacy);
+            // Only update and show if the cached verifier isn't empty
+            if (!entry->verifierName.empty()) {
+                updateUI(entry->verifierName, entry->videoUrl, entry->isLegacy);
+            } else {
+                m_fields->m_label->setVisible(false);
+            }
         }
-        else if (level->m_demonDifficulty == 6) {
+        else if (level->m_demonDifficulty >= 5) {
+            // Level is not in cache, start fetching
             m_fields->m_label->setVisible(true);
+            m_fields->m_label->setString("Checking List...");
             fetchData(level);
         }
 
@@ -169,7 +177,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     }
 
     void buildUI() {
-        auto label = CCLabelBMFont::create("Checking List...", "goldFont.fnt");
+        auto label = CCLabelBMFont::create("", "goldFont.fnt");
         label->setScale(LABEL_TEXT_SCALE);
         label->setVisible(false);
         m_fields->m_label = label;
@@ -210,17 +218,28 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     void updateUI(const std::string& verifier, const std::string& video, bool isLegacy) {
         if (!m_fields->m_label) return;
 
+        // If verifier is empty, we shouldn't be showing this UI at all
+        if (verifier.empty()) {
+            m_fields->m_label->setVisible(false);
+            if (m_fields->m_youtubeBtn) m_fields->m_youtubeBtn->setVisible(false);
+            return;
+        }
+
         m_fields->m_videoUrl = video;
 
         std::string finalName = verifier;
-        if (m_level->m_twoPlayerMode && !verifier.empty()) {
+        if (m_level->m_twoPlayerMode) {
             finalName += " (Solo)";
         }
 
-        std::string text = finalName.empty() ? "No Info" : fmt::format("Verified by: {}", finalName);
+        std::string text = fmt::format("Verified by: {}", finalName);
 
+        m_fields->m_label->setFntFile(isLegacy ? "bigFont.fnt" : "goldFont.fnt");
         m_fields->m_label->setString(text.c_str());
-        m_fields->m_label->limitLabelWidth(LABEL_MAX_WIDTH, LABEL_TEXT_SCALE, 0.1f);
+
+        float scale = isLegacy ? LEGACY_TEXT_SCALE : LABEL_TEXT_SCALE;
+        m_fields->m_label->setScale(scale);
+        m_fields->m_label->limitLabelWidth(LABEL_MAX_WIDTH, scale, 0.1f);
         m_fields->m_label->setVisible(true);
 
         bool gray = isLegacy && Mod::get()->getSettingValue<bool>("legacy-color");
@@ -251,7 +270,6 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         int id = level->m_levelID;
         bool platformer = level->isPlatformer();
 
-        // Always fetch base endpoint to get Solo verification
         std::string url = fmt::format("{}/{}",
             platformer ? API_URL_PLATFORMER : API_URL_CLASSIC, id);
 
@@ -259,12 +277,12 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
             web::WebRequest().userAgent(USER_AGENT).get(url),
             [this, id](web::WebResponse res) {
                 if (!res.ok()) {
-                    if (res.code() == 404) {
-                        VerifierCache::get().insert(id, {"", "", false, std::chrono::system_clock::now()});
-                        Loader::get()->queueInMainThread([this] {
-                            if (m_fields->m_label) m_fields->m_label->setVisible(false);
-                        });
-                    }
+                    // Cache empty verifier so we don't spam the API for non-list levels
+                    VerifierCache::get().insert(id, {"", "", false, std::chrono::system_clock::now()});
+                    saveCache();
+                    Loader::get()->queueInMainThread([this] {
+                        if (m_fields->m_label) m_fields->m_label->setVisible(false);
+                    });
                     return;
                 }
 
@@ -272,9 +290,8 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
                 if (!json.isOk()) return;
 
                 auto data = json.unwrap();
-                std::string verifier = "Unknown";
+                std::string verifier = "";
                 std::string video = "";
-                bool found = false;
                 bool legacy = false;
 
                 if (data.contains("legacy"))
@@ -290,19 +307,18 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
                                 auto u = v["submitted_by"];
                                 auto g = u["global_name"].asString();
                                 verifier = g.isOk() ? g.unwrap() : u["name"].asString().unwrapOr("Unknown");
-                                found = true;
                             }
                         }
                     }
                 }
 
-                if (found) {
-                    VerifierCache::get().insert(id, {verifier, video, legacy, std::chrono::system_clock::now()});
-                    saveCache();
-                    Loader::get()->queueInMainThread([this, verifier, video, legacy] {
-                        updateUI(verifier, video, legacy);
-                    });
-                }
+                // Even if verifier is empty after parsing, we cache it
+                VerifierCache::get().insert(id, {verifier, video, legacy, std::chrono::system_clock::now()});
+                saveCache();
+
+                Loader::get()->queueInMainThread([this, verifier, video, legacy] {
+                    updateUI(verifier, video, legacy);
+                });
             }
         );
     }
