@@ -11,6 +11,13 @@
 	"version": "1.0.0",
 	"developer": "suposed",
 	"description": "Adds verifier names and video links to Extreme Demons using the AREDL/AREPL API.",
+	"links": {
+		"source": "https://github.com/anonycoder-commits/verifier-labels"
+	},
+	"issues": {
+		"info": "Report bugs or request features on GitHub.",
+		"url": "https://github.com/anonycoder-commits/verifier-labels/issues"
+	},
 	"tags": ["online", "gameplay"],
 	"dependencies": {
 		"geode.node-ids": {
@@ -32,7 +39,7 @@
 			"default": -8.0,
 			"min": -50.0,
 			"max": 50.0,
-			"control": { "slider": true }
+			"controls": { "slider": true }
 		},
 		"label-alignment": {
 			"name": "Label Alignment",
