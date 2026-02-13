@@ -39,7 +39,7 @@
 			"default": -8.0,
 			"min": -50.0,
 			"max": 50.0,
-			"controls": { "slider": true }
+			"control": { "slider": true }
 		},
 		"label-alignment": {
 			"name": "Label Alignment",

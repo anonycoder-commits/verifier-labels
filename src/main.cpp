@@ -5,6 +5,7 @@
 #include <matjson.hpp>
 #include <matjson/std.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <shared_mutex>
 #include <unordered_map>
@@ -160,6 +161,8 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     void buildUI() {
         auto menu = CCMenu::create();
         menu->setID("verifier-menu"_spr);
+        menu->setContentSize({0, 0});
+        menu->ignoreAnchorPointForPosition(false);
 
         m_fields->m_label = CCLabelBMFont::create("", "goldFont.fnt");
         m_fields->m_label->setScale(0.4f);
@@ -184,7 +187,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         this->addChild(menu);
 
         if (auto anchor = this->getChildByID("creator-info-menu")) {
-            float yOff = static_cast<float>(Mod::get()->getSettingValue<double>("y-offset"));
+            auto yOff = static_cast<float>(Mod::get()->getSettingValue<double>("y-offset"));
             menu->setPosition(anchor->getPosition() + ccp(0, yOff));
         }
     }
@@ -212,8 +215,11 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     void refreshVerifierInfo() {
         if (cachingEnabled()) {
             if (auto cached = VerifierCache::get().find(levelKey())) {
-                applyEntry(*cached, m_fields->m_duo);
-                return;
+                bool expired = cached->verifier.empty() && (now() - cached->cachedAt) > 1800;
+                if (!expired) {
+                    applyEntry(*cached);
+                    return;
+                }
             }
         }
 
@@ -222,18 +228,23 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         m_fields->m_ytBtn->setVisible(false);
     }
 
-    void applyEntry(CacheEntry const& entry, bool duo) {
+    void applyEntry(CacheEntry const& entry) {
         if (entry.verifier.empty()) {
-            if (duo == m_fields->m_duo) {
-                m_fields->m_labelBtn->setVisible(false);
-                m_fields->m_ytBtn->setVisible(false);
-            }
+            m_fields->m_label->setString("Not on AREDL");
+            m_fields->m_label->setFntFile("bigFont.fnt");
+            m_fields->m_label->setScale(0.35f);
+            m_fields->m_labelBtn->setContentSize(m_fields->m_label->getScaledContentSize());
+            m_fields->m_label->setPosition(m_fields->m_labelBtn->getContentSize() / 2);
+            m_fields->m_labelBtn->setVisible(true);
+            m_fields->m_labelBtn->setEnabled(m_level->m_twoPlayerMode);
+            m_fields->m_ytBtn->setVisible(false);
+            m_fields->m_labelBtn->updateSprite();
             return;
         }
 
         m_fields->m_videoUrl = entry.video;
 
-        std::string prefix = duo
+        std::string prefix = m_fields->m_duo
             ? "[2P] "
             : (m_level->m_twoPlayerMode ? "[Solo] Verified by: " : "Verified by: ");
 
@@ -269,14 +280,14 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     }
 
     void fetchData(std::string key, bool duo) {
-        auto baseUrl = m_level->isPlatformer() ? PLATFORMER_API : CLASSIC_API;
-        auto url = fmt::format(fmt::runtime("{}/{}"), baseUrl, key);
+        auto url = std::string(m_level->isPlatformer() ? PLATFORMER_API : CLASSIC_API) + "/" + key;
         auto& holder = duo ? m_fields->m_duoTask : m_fields->m_soloTask;
 
         holder.spawn(web::WebRequest().userAgent(UA).get(url), [this, key](web::WebResponse res) {
             if (!res.ok()) {
                 VerifierCache::get().store(key, {"", "", false, now()});
                 saveCache();
+                if (key == levelKey()) refreshVerifierInfo();
                 return;
             }
 

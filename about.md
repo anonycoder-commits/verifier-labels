@@ -4,7 +4,7 @@ Shows who verified Extreme Demon levels and provides links to their completion v
 ### Features
 * **Verifier Credit**: Displays the name of the player who verified the level.
 * **Video Link**: Adds a clickable YouTube icon that opens the verification proof in your browser.
-* **Local Caching**: Stores data on your device for 30 days to ensure instant loading and reduced network usage.
+* **Local Caching**: Stores verified data permanently and re-checks unlisted levels every 30 minutes to ensure instant loading and reduced network usage.
 
 ### How to Use
 1. Open any **Extreme Demon** level.
