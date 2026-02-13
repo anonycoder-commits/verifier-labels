@@ -60,10 +60,3 @@ Access these settings in the **Geode mod menu**:
 
 * **Mod Author**: Tasuposed
 * **Data Source**: [AREDL](https://aredl.net/) - All Rated Extreme Demons List
-
----
-
-
-## License
-
-[Your chosen license here]
