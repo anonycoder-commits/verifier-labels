@@ -18,7 +18,7 @@
 		"info": "Report bugs or request features on GitHub.",
 		"url": "https://github.com/anonycoder-commits/verifier-labels/issues"
 	},
-	"tags": ["online", "gameplay"],
+	"tags": ["online", "enhancement"],
 	"dependencies": {
 		"geode.node-ids": {
 			"version": ">=1.22.0-beta.1",
