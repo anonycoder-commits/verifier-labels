@@ -4,55 +4,53 @@
   <img src="logo.png" width="160" alt="Verifier Labels Logo">
 </p>
 
+**See who verified Extreme Demons, right on the level page.**
+
+Verifier Labels shows you the original verifier and completion video for Extreme Demons using the [AREDL](https://aredl.net/) database.
+
+---
+
 ## Features
 
-* **Verifier Credits**: See the name of the player(s) who verified the level
-* **Video Proof**: Clickable YouTube icon that opens the verification video in your browser
-* **Two-Player Support**: Toggle between Solo and 2-Player verifier info for dual-mode levels
+* **Verifier Credits**: See who verified the level
+* **Video Proof**: Click the YouTube icon to watch the verification video
+* **Two-Player Support**: Toggle between Solo and 2-Player verifiers for dual-mode levels
 * **Platformer Support**: Works with both classic and platformer Extreme Demons
-* **Smart Caching**: Data is saved locally to ensure instant loading and reduced API calls
-* **Legacy Indicators**: Optionally display legacy list levels in a grayed-out style
-* **Customizable**: Adjust label position, alignment, and feature visibility via Geode settings
+* **Smart Caching**: Level data loads instantly after the first check
+* **Legacy Levels**: Legacy list levels can be shown in gray (optional)
+* **Customizable**: Move the label around and choose what to display
 
 ---
 
 ## How to Use
 
-1. Open any **Extreme Demon** level (5 demon stars or higher)
-2. The verifier's name appears automatically below the level creator info
-3. For **two-player levels**, click the label to toggle between Solo and 2P verifier data
-4. Click the **YouTube icon** to watch the verification video (when available)
+1. Open any **Extreme Demon** level
+2. The verifier's name appears below the level creator
+3. For **two-player levels**, click the label to switch between Solo and 2P info
+4. Click the **YouTube icon** to watch the verification video
 
-### Status Messages
-* **"Verified by: [Name]"** - Level is on the AREDL
-* **"[Solo] Verified by: [Name]"** - Solo verification for a two-player level
-* **"[2P] [Names]"** - Two-player verification
-* **"Not on AREDL"** - Level is not listed in the database
-* **"Checking..."** - Currently fetching data from the API
+### What You'll See
+
+* **"Verified by: [Name]"** - Level is on the list
+* **"[Solo] Verified by: [Name]"** - Solo completion for a two-player level
+* **"[2P] [Names]"** - Two-player completion
+* **"Not on AREDL"** - Level isn't listed
+* **"Checking..."** - Loading data
 
 ---
 
-## Configuration
+## Settings
 
-Access these settings in the **Geode mod menu**:
+Open the Geode mod menu to customize:
 
-| Setting | Description |
+| Setting | What It Does |
 |---------|-------------|
-| **Show Label** | Toggle the mod UI on or off |
-| **Y-Offset** | Move the label up or down to avoid overlapping other mods |
-| **Label Alignment** | Choose between Left or Center alignment |
-| **Show YouTube Button** | Toggle the visibility of the video link icon |
-| **Gray Out Legacy** | Display legacy list levels in gray text |
-| **Disable Cache** | Turn off local caching (not recommended) |
-
----
-
-## Technical Details
-
-* **API Source**: [AREDL API v2](https://api.aredl.net)
-* **Cache File**: `verifier_cache.json` (stored in mod save directory)
-* **Cache Expiry**: 30 minutes for "Not on AREDL" entries
-* **Supported Modes**: Classic Demons & Platformer Demons
+| **Show Label** | Turn the mod on or off |
+| **Y-Offset** | Move the label up or down |
+| **Label Alignment** | Left or center alignment |
+| **Show YouTube Button** | Show/hide the video icon |
+| **Gray Out Legacy** | Display legacy levels in gray |
+| **Disable Cache** | Turn off saved data (slower) |
 
 ---
 
