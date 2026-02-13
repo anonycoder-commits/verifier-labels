@@ -15,7 +15,7 @@ using namespace geode::prelude;
 static constexpr auto CACHE_FILE = "verifier_cache.json";
 static constexpr auto CLASSIC_API = "https://api.aredl.net/v2/api/aredl/levels";
 static constexpr auto PLATFORMER_API = "https://api.aredl.net/v2/api/arepl/levels";
-static constexpr auto UA = "Geode-AREDL-Mod/3.0";
+static constexpr auto UA = "Geode-AREDL-Mod/1.0.0";
 
 struct CacheEntry {
     std::string verifier;
