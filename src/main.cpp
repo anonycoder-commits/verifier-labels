@@ -16,6 +16,35 @@ static constexpr auto CACHE_FILE = "verifier_cache.json";
 static constexpr auto CLASSIC_API = "https://api.aredl.net/v2/api/aredl/levels";
 static constexpr auto PLATFORMER_API = "https://api.aredl.net/v2/api/arepl/levels";
 static constexpr auto UA = "Geode-AREDL-Mod/1.0.0";
+static constexpr long long CACHE_EXPIRY_SECONDS = 1800;
+static constexpr float LABEL_SCALE_NORMAL = 0.4f;
+static constexpr float LABEL_SCALE_SMALL = 0.35f;
+static constexpr float YOUTUBE_ICON_SCALE = 0.32f;
+static constexpr float LABEL_MAX_WIDTH = 200.f;
+static constexpr long long RATE_LIMIT_MS = 500;
+
+class RateLimiter {
+    long long m_lastRequestTime = 0;
+
+public:
+    static RateLimiter& get() {
+        static RateLimiter inst;
+        return inst;
+    }
+
+    bool canMakeRequest() const {
+        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count();
+        return (now - m_lastRequestTime) >= RATE_LIMIT_MS;
+    }
+
+    void recordRequest() {
+        m_lastRequestTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count();
+    }
+};
 
 struct CacheEntry {
     std::string verifier;
@@ -165,7 +194,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         menu->ignoreAnchorPointForPosition(false);
 
         m_fields->m_label = CCLabelBMFont::create("", "goldFont.fnt");
-        m_fields->m_label->setScale(0.4f);
+        m_fields->m_label->setScale(LABEL_SCALE_NORMAL);
 
         bool leftAlign = Mod::get()->getSettingValue<std::string>("label-alignment") == "Left";
         m_fields->m_label->setAnchorPoint(leftAlign ? ccp(0, 0.5f) : ccp(0.5f, 0.5f));
@@ -176,7 +205,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         m_fields->m_labelBtn->setVisible(false);
 
         auto ytIcon = CCSprite::createWithSpriteFrameName("gj_ytIcon_001.png");
-        ytIcon->setScale(0.32f);
+        ytIcon->setScale(YOUTUBE_ICON_SCALE);
         m_fields->m_ytBtn = CCMenuItemSpriteExtra::create(
             ytIcon, this, menu_selector(VerifierInfoLayer::onVideo)
         );
@@ -215,7 +244,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     void refreshVerifierInfo() {
         if (cachingEnabled()) {
             if (auto cached = VerifierCache::get().find(levelKey())) {
-                bool expired = cached->verifier.empty() && (now() - cached->cachedAt) > 1800;
+                bool expired = cached->verifier.empty() && (now() - cached->cachedAt) > CACHE_EXPIRY_SECONDS;
                 if (!expired) {
                     applyEntry(*cached);
                     return;
@@ -232,7 +261,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         if (entry.verifier.empty()) {
             m_fields->m_label->setString("Not on AREDL");
             m_fields->m_label->setFntFile("bigFont.fnt");
-            m_fields->m_label->setScale(0.35f);
+            m_fields->m_label->setScale(LABEL_SCALE_SMALL);
             m_fields->m_labelBtn->setContentSize(m_fields->m_label->getScaledContentSize());
             m_fields->m_label->setPosition(m_fields->m_labelBtn->getContentSize() / 2);
             m_fields->m_labelBtn->setVisible(true);
@@ -253,9 +282,9 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         bool grayed = entry.legacy && Mod::get()->getSettingValue<bool>("legacy-color");
         m_fields->m_label->setFntFile(grayed ? "bigFont.fnt" : "goldFont.fnt");
 
-        float scale = grayed ? 0.35f : 0.4f;
+        float scale = grayed ? LABEL_SCALE_SMALL : LABEL_SCALE_NORMAL;
         m_fields->m_label->setScale(scale);
-        m_fields->m_label->limitLabelWidth(200.f, scale, 0.1f);
+        m_fields->m_label->limitLabelWidth(LABEL_MAX_WIDTH, scale, 0.1f);
 
         m_fields->m_labelBtn->setContentSize(m_fields->m_label->getScaledContentSize());
         m_fields->m_label->setPosition(m_fields->m_labelBtn->getContentSize() / 2);
@@ -283,8 +312,15 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         auto url = std::string(m_level->isPlatformer() ? PLATFORMER_API : CLASSIC_API) + "/" + key;
         auto& holder = duo ? m_fields->m_duoTask : m_fields->m_soloTask;
 
+        if (!RateLimiter::get().canMakeRequest()) {
+            log::debug("Rate limited, skipping request for level {}", key);
+            return;
+        }
+        RateLimiter::get().recordRequest();
+
         holder.spawn(web::WebRequest().userAgent(UA).get(url), [this, key](web::WebResponse res) {
             if (!res.ok()) {
+                log::debug("API request failed for level {}: {}", key, res.code());
                 VerifierCache::get().store(key, {"", "", false, now()});
                 saveCache();
                 if (key == levelKey()) refreshVerifierInfo();
@@ -292,7 +328,10 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
             }
 
             auto parsed = res.json();
-            if (!parsed.isOk()) return;
+            if (!parsed.isOk()) {
+                log::debug("Failed to parse JSON for level {}: {}", key, parsed.unwrapErr());
+                return;
+            }
             auto root = parsed.unwrap();
 
             std::vector<std::string> names;
