@@ -10,7 +10,7 @@
 	"name": "Verifier Labels",
 	"version": "1.0.0",
 	"developer": "suposed",
-	"description": "Adds verifier names and video links to Extreme Demons using the AREDL/AREPL API.",
+	"description": "Shows who verified extreme demons on the level info page, with a link to their verification video.",
 	"links": {
 		"source": "https://github.com/anonycoder-commits/verifier-labels"
 	},
@@ -27,14 +27,14 @@
 	},
 	"settings": {
 		"show-label": {
-			"name": "Enable Labels",
-			"description": "Show verifier information on Extreme Demons.",
+			"name": "Show Verifier Label",
+			"description": "Shows who verified an extreme demon.",
 			"type": "bool",
 			"default": true
 		},
 		"y-offset": {
-			"name": "Vertical Position",
-			"description": "Adjust the label height relative to the creator name.",
+			"name": "Label Position",
+			"description": "Moves the label up or down relative to the creator name.",
 			"type": "float",
 			"default": -8.0,
 			"min": -50.0,
@@ -48,19 +48,19 @@
 			"one-of": ["Left", "Center"]
 		},
 		"legacy-color": {
-			"name": "Gray Out Legacy",
-			"description": "Show legacy list levels in gray.",
+			"name": "Legacy Grayscale",
+			"description": "Displays the verifier's name in gray for legacy demons.",
 			"type": "bool",
 			"default": true
 		},
 		"show-youtube": {
-			"name": "Show YouTube Button",
+			"name": "Show YouTube Link",
 			"type": "bool",
 			"default": true
 		},
 		"disable-cache": {
 			"name": "Disable Caching",
-			"description": "Always fetch fresh data from the API instead of using cached results. May increase load times.",
+			"description": "Fetches data from the API every time instead of using cache. May slow things down.",
 			"type": "bool",
 			"default": false
 		}

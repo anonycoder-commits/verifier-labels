@@ -1,17 +1,15 @@
 # Verifier Labels
-Shows who verified Extreme Demon levels and provides links to their completion videos.
 
-### Features
-* **Verifier Credit**: Displays the name of the player who verified the level.
-* **Video Link**: Adds a clickable YouTube icon that opens the verification proof in your browser.
-* **Local Caching**: Stores verified data permanently and re-checks unlisted levels every 30 minutes to ensure instant loading and reduced network usage.
+Shows who verified Extreme Demon levels, right on the level info page. Tap the YouTube icon to watch the verification video.
 
-### How to Use
-1. Open any **Extreme Demon** level.
-2. The verification info will appear directly below the creator's name.
-3. Click the YouTube icon next to the verifier's name to view the video proof.
+- Displays the verifier's name under the creator
+- Works for both classic and platformer Extreme Demons
+- On two-player levels, click the label to swap between Solo and 2P info
+- Legacy list levels show up in gray (can be toggled off)
+- Caches data so it loads instantly after the first check
 
-### Frequently Asked Questions
-* **Why is the label missing?** The mod only activates for levels currently rated as Extreme Demon.
-* **What does "Not on AREDL" mean?** The level has not been added to the All Rated Extreme Demons List database yet.
-* **Why is there no YouTube icon?** Some AREDL entries do not have a verification video linked.
+### FAQ
+
+**Why is the label missing?** The mod only shows up on levels rated Extreme Demon.
+
+**What does "Not on AREDL" mean?** The level hasn't been added to the list yet.

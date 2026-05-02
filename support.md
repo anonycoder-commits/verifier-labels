@@ -1,1 +1,1 @@
-For bug reports, please open an issue on the [GitHub repository](https://github.com/anonycoder-commits/verifier-labels/issues).
+If you like this mod and want to support me, you can donate on [GitHub Sponsors](https://github.com/sponsors/suposed) or [Ko-fi](https://ko-fi.com/suposed). Thanks!
