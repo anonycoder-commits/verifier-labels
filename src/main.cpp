@@ -10,6 +10,7 @@
 #include <unordered_map>
 
 using namespace geode::prelude;
+using namespace matjson;
 
 static constexpr const char* CACHE_FILE = "verifier_cache.json";
 static constexpr const char* CLASSIC_API = "https://api.aredl.net/v2/api/aredl/levels";
@@ -25,17 +26,17 @@ struct VerifierData {
 
 template<>
 struct matjson::Serialize<VerifierData> {
-    static geode::Result<VerifierData> from_json(matjson::Value const& v) {
-        if (!v.isObject()) return geode::Err("expected object");
-        return geode::Ok(VerifierData{
+    static Result<VerifierData> from_json(Value const& v) {
+        if (!v.isObject()) return Err("expected object");
+        return Ok(VerifierData{
             v.contains("verifier") ? v["verifier"].asString().unwrapOr("") : "",
             v.contains("video") ? v["video"].asString().unwrapOr("") : "",
             v.contains("legacy") ? v["legacy"].asBool().unwrapOr(false) : false,
             v.contains("timestamp") ? static_cast<long long>(v["timestamp"].asInt().unwrapOr(0)) : 0
         });
     }
-    static matjson::Value to_json(VerifierData const& d) {
-        return matjson::makeObject({
+    static Value to_json(VerifierData const& d) {
+        return makeObject({
             {"verifier", d.verifier},
             {"video", d.video},
             {"legacy", d.legacy},
@@ -48,12 +49,12 @@ static std::unordered_map<std::string, VerifierData> s_cache;
 
 static void saveCache() {
     if (Mod::get()->getSettingValue<bool>("disable-cache")) return;
-    auto obj = matjson::Value::object();
+    auto obj = Value::object();
     for (auto const& [k, d] : s_cache) {
-        obj.set(k, matjson::Serialize<VerifierData>::to_json(d));
+        obj.set(k, Serialize<VerifierData>::to_json(d));
     }
     auto path = Mod::get()->getSaveDir() / CACHE_FILE;
-    if (auto res = file::writeString(path, obj.dump(matjson::NO_INDENTATION)); !res) {
+    if (auto res = file::writeString(path, obj.dump(NO_INDENTATION)); !res) {
         log::error("Failed to save cache: {}", res.unwrapErr());
     }
 }
@@ -68,7 +69,7 @@ static void loadCache() {
     auto root = res.unwrap();
     if (!root.isObject()) return;
     for (auto const& [k, v] : root) {
-        if (auto parsed = matjson::Serialize<VerifierData>::from_json(v)) {
+        if (auto parsed = Serialize<VerifierData>::from_json(v)) {
             s_cache[k] = parsed.unwrap();
         }
     }

@@ -1,0 +1,48 @@
+name: Build & Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: Win64
+          - os: macos-latest
+            target: Mac
+          - os: macos-latest
+            target: iOS
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: geode-sdk/build-geode-mod@v1
+        with:
+          target: ${{ matrix.target }}
+          output-name: "VerifierLabels"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VerifierLabels-${{ matrix.target }}
+          path: "./*.geode"
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.geode
+          generate_release_notes: true
