@@ -227,7 +227,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         auto url = std::string(m_level->isPlatformer() ? PLATFORMER_API : CLASSIC_API) + "/" + key;
         auto& holder = duo ? m_fields->m_duoTask : m_fields->m_soloTask;
 
-        holder.spawn(web::WebRequest().userAgent("Geode-AREDL-Mod/1.0.0").get(url), [this, key](web::WebResponse res) {
+        holder.spawn(web::WebRequest().userAgent("Geode-AREDL-Mod/1.0.1").get(url), [this, key](web::WebResponse res) {
             if (!res.ok()) {
                 log::debug("API request failed for {}: {}", key, res.code());
                 s_cache[key] = {"", "", false, nowSec()};
