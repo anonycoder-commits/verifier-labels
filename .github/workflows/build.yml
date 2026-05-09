@@ -8,27 +8,33 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
+        config:
+          - name: Windows
+            os: windows-latest
             target: Win64
-          - os: macos-latest
+          - name: macOS
+            os: macos-latest
             target: Mac
-          - os: macos-latest
+          - name: iOS
+            os: macos-latest
             target: iOS
-    runs-on: ${{ matrix.os }}
+
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: geode-sdk/build-geode-mod@main
         id: build
         with:
-          target: ${{ matrix.target }}
           combine: true
+          target: ${{ matrix.config.target }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: VerifierLabels-${{ matrix.target }}
+          name: VerifierLabels-${{ matrix.config.name }}
           path: ${{ steps.build.outputs.build-output }}
 
   package:
