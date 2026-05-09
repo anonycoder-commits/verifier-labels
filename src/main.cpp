@@ -64,13 +64,13 @@ static void loadCache() {
     auto path = Mod::get()->getSaveDir() / CACHE_FILE;
     std::error_code ec;
     if (!std::filesystem::exists(path, ec) || ec) return;
-    auto res = file::readJson(path);
-    if (!res) return;
-    auto root = res.unwrap();
-    if (!root.isObject()) return;
-    for (auto const& [k, v] : root) {
-        if (auto parsed = Serialize<VerifierData>::from_json(v)) {
-            s_cache[k] = parsed.unwrap();
+    if (auto res = file::readJson(path)) {
+        auto root = res.unwrap();
+        if (!root.isObject()) return;
+        for (auto const& [k, v] : root) {
+            if (auto parsed = Serialize<VerifierData>::from_json(v)) {
+                s_cache[k] = parsed.unwrap();
+            }
         }
     }
 }
@@ -139,7 +139,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     }
 
     void onToggleMode(CCObject* sender) {
-        if (!m_level->m_twoPlayerMode) return;
+        if (!m_level || !m_level->m_twoPlayerMode) return;
         m_fields->m_duo = !m_fields->m_duo;
         refreshLabel();
 
@@ -158,15 +158,14 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     }
 
     void refreshLabel() {
-        if (!Mod::get()->getSettingValue<bool>("disable-cache")) {
+        if (!m_level) return;
+
+        bool cacheDisabled = Mod::get()->getSettingValue<bool>("disable-cache");
+        if (!cacheDisabled) {
             auto it = s_cache.find(levelKey());
-            if (it != s_cache.end()) {
-                bool expired = it->second.verifier.empty()
-                    && (nowSec() - it->second.timestamp) > CACHE_EXPIRY;
-                if (!expired) {
-                    applyData(it->second);
-                    return;
-                }
+            if (it != s_cache.end() && (nowSec() - it->second.timestamp) <= CACHE_EXPIRY) {
+                applyData(it->second);
+                return;
             }
         }
 
@@ -176,18 +175,14 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
     }
 
     void applyData(VerifierData const& d) {
-        if (d.verifier.empty()) {
-            m_fields->m_label->setString("Not on AREDL");
-            m_fields->m_label->setFntFile("bigFont.fnt");
-            m_fields->m_label->setScale(0.35f);
-            m_fields->m_labelBtn->setContentSize(m_fields->m_label->getScaledContentSize());
-            m_fields->m_label->setPosition(m_fields->m_labelBtn->getContentSize() / 2);
-            m_fields->m_labelBtn->setVisible(true);
-            m_fields->m_labelBtn->setEnabled(m_level->m_twoPlayerMode);
+        auto hide = [&] {
+            m_fields->m_labelBtn->setVisible(false);
             if (m_fields->m_ytBtn) m_fields->m_ytBtn->setVisible(false);
-            m_fields->m_labelBtn->updateSprite();
-            return;
-        }
+        };
+
+        if (d.verifier.empty()) { hide(); return; }
+
+        if (m_level && m_level->m_demonDifficulty == 5 && !d.legacy) { hide(); return; }
 
         m_fields->m_videoUrl = d.video;
 
@@ -207,7 +202,7 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
         m_fields->m_labelBtn->setContentSize(m_fields->m_label->getScaledContentSize());
         m_fields->m_label->setPosition(m_fields->m_labelBtn->getContentSize() / 2);
         m_fields->m_labelBtn->setVisible(true);
-        m_fields->m_labelBtn->setEnabled(m_level->m_twoPlayerMode);
+        m_fields->m_labelBtn->setEnabled(m_level && m_level->m_twoPlayerMode);
 
         if (m_fields->m_ytBtn) {
             bool showYt = !d.video.empty() && Mod::get()->getSettingValue<bool>("show-youtube");
@@ -242,7 +237,13 @@ class $modify(VerifierInfoLayer, LevelInfoLayer) {
             }
 
             auto parsed = res.json();
-            if (!parsed.isOk()) return;
+            if (!parsed.isOk()) {
+                log::debug("Failed to parse JSON response for {}", key);
+                s_cache[key] = {"", "", false, nowSec()};
+                saveCache();
+                if (key == levelKey()) refreshLabel();
+                return;
+            }
             auto root = parsed.unwrap();
 
             std::vector<std::string> names;
