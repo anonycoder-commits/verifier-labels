@@ -8,7 +8,7 @@
 	},
 	"id": "suposed.verifier_labels",
 	"name": "Verifier Labels",
-	"version": "v1.0.0",
+	"version": "v1.0.1",
 	"developer": "suposed",
 	"description": "Shows who verified extreme demons on the level info page, with a link to their verification video.",
 	"links": {
